@@ -30,30 +30,30 @@ Builds beatByte wide data packets for the DMA from the one-byte wide packets
  */
 class DMAPacketAssembler(beatBytes: Int) extends Module {
   val io = IO(new Bundle {
-    val in = new Bundle {
+    val producer = new Bundle {
       val data = Flipped(Decoupled(UInt(8.W)))
       val done = Input(Bool()) // Signal to indicate we should send what we have and reset
     }
-    val out = Decoupled(UInt((beatBytes*8).W))
+    val dmaOut = Decoupled(UInt((beatBytes*8).W))
   })
 
   val counter = RegInit(0.U(log2Ceil(beatBytes + 1).W))
   val packedData = RegInit(0.U((8 * beatBytes).W))
 
-  when (io.in.data.fire()) {
-    packedData := packedData | (io.in.data.bits << (counter << 3).asUInt()).asUInt()
+  when (io.producer.data.fire()) {
+    packedData := packedData | (io.producer.data.bits << (counter << 3).asUInt()).asUInt()
     counter := counter + 1.U
   }
 
-  when (io.out.fire()) {
+  when (io.dmaOut.fire()) {
     packedData := 0.U
     counter := 0.U
   }
 
-  io.out.valid := counter === beatBytes.U | (counter =/= 0.U & io.in.done)
-  io.out.bits := packedData
+  io.dmaOut.valid := counter === beatBytes.U | (counter =/= 0.U & io.producer.done)
+  io.dmaOut.bits := packedData
   // If we are waiting on the out to be taken up, we should not take in more data
-  io.in.data.ready := !io.out.valid
+  io.producer.data.ready := !io.dmaOut.valid
 }
 
 /*
@@ -61,8 +61,8 @@ Builds one-byte wide data packets from the beatByte wide packets produced by the
  */
 class DMAPacketDisassembler(beatBytes: Int) extends Module {
   val io = IO(new Bundle {
-    val in = Flipped(Decoupled(UInt(beatBytes.W)))
-    val out = new Bundle {
+    val dmaIn = Flipped(Decoupled(UInt((beatBytes*8).W)))
+    val consumer = new Bundle {
       val data = Decoupled(UInt(8.W))
       val done = Input(Bool())
     }
@@ -71,24 +71,24 @@ class DMAPacketDisassembler(beatBytes: Int) extends Module {
   val counter = RegInit(0.U(log2Ceil(beatBytes + 1).W))
   val wideData = RegInit(0.U((8 * beatBytes).W))
 
-  when (io.in.fire()) {
-    wideData := io.in.bits
+  when (io.dmaIn.fire()) {
+    wideData := io.dmaIn.bits
     counter := beatBytes.U
   }
 
-  when (io.out.data.fire()) {
-    wideData := wideData >> 3
+  when (io.consumer.data.fire()) {
+    wideData := wideData >> 8
     counter := counter - 1.U
   }
 
-  when (io.out.done) { // The assembler is done and we should reset to initial state
+  when (io.consumer.done) { // The assembler is done and we should reset to initial state
     wideData := 0.U
     counter := 0.U
   }
 
-  io.in.ready := counter === 0.U
-  io.out.data.valid := counter =/= 0.U
-  io.out.data.bits := wideData(7, 0) // TODO: Verify this gives the next byte in order (endianness)
+  io.dmaIn.ready := counter === 0.U & io.consumer.data.ready
+  io.consumer.data.valid := counter =/= 0.U
+  io.consumer.data.bits := wideData(7, 0)
 }
 
 class EE290CDMAWriteIO(addrBits: Int, beatBytes: Int) extends Bundle {
