@@ -91,18 +91,18 @@ class DMAPacketDisassembler(beatBytes: Int) extends Module {
   io.out.data.bits := wideData(7, 0) // TODO: Verify this gives the next byte in order (endianness)
 }
 
-class EE290CDMADMAWriteIO(addrBits: Int, beatBytes: Int) extends Bundle {
+class EE290CDMAWriteIO(addrBits: Int, beatBytes: Int) extends Bundle {
   val req = Decoupled(new EE290CDMAWriterReq(addrBits, beatBytes))
 }
 
-class EE290CDMADMAReadIO(addrBits: Int, beatBytes: Int, maxReadSize: Int) extends Bundle {
+class EE290CDMAReadIO(addrBits: Int, beatBytes: Int, maxReadSize: Int) extends Bundle {
   val req = Flipped(Decoupled(new EE290CDMAReaderReq(addrBits, maxReadSize)))
   val resp = Decoupled(new EE290CDMAReaderResp(maxReadSize))
   val queue = Decoupled(UInt((beatBytes * 8).W))
 }
 
 
-class EE290CDMADMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Parameters) extends LazyModule {
+class EE290CDMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Parameters) extends LazyModule {
   val id_node = TLIdentityNode()
   val xbar_node = TLXbar()
 
@@ -115,8 +115,8 @@ class EE290CDMADMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: P
 
   lazy val module = new LazyModuleImp(this) with HasCoreParameters {
     val io = IO(new Bundle {
-      val read = new EE290CDMADMAReadIO(paddrBits, beatBytes, maxReadSize)
-      val write = new EE290CDMADMAWriteIO(paddrBits, beatBytes)
+      val read = new EE290CDMAReadIO(paddrBits, beatBytes, maxReadSize)
+      val write = new EE290CDMAWriteIO(paddrBits, beatBytes)
       val busy = Output(Bool())
     })
 
