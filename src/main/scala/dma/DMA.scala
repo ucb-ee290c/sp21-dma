@@ -10,18 +10,18 @@ import freechips.rocketchip.tile.{HasCoreParameters}
 import freechips.rocketchip.tilelink.{TLIdentityNode, TLXbar}
 import testchipip.TLHelper
 
-class EE290CDMAWriterReq(addrBits: Int, beatBytes: Int) extends Bundle {
+class EE290CDMAWriterReq(val addrBits: Int, val beatBytes: Int) extends Bundle {
   val addr = UInt(addrBits.W)
   val data = UInt((beatBytes * 8).W)
   val totalBytes = UInt(log2Ceil(beatBytes).W)
 }
 
-class EE290CDMAReaderReq(addrBits: Int, maxReadSize: Int) extends Bundle {
+class EE290CDMAReaderReq(val addrBits: Int, val maxReadSize: Int) extends Bundle {
   val addr = UInt(addrBits.W)
   val totalBytes = UInt(log2Ceil(maxReadSize).W)
 }
 
-class EE290CDMAReaderResp(maxReadSize: Int) extends Bundle {
+class EE290CDMAReaderResp(val maxReadSize: Int) extends Bundle {
   val bytesRead = UInt(log2Ceil(maxReadSize).W)
 }
 
@@ -92,7 +92,7 @@ class DMAPacketDisassembler(beatBytes: Int) extends Module {
 }
 
 class EE290CDMAWriteIO(addrBits: Int, beatBytes: Int) extends Bundle {
-  val req = Decoupled(new EE290CDMAWriterReq(addrBits, beatBytes))
+  val req = Flipped(Decoupled(new EE290CDMAWriterReq(addrBits, beatBytes)))
 }
 
 class EE290CDMAReadIO(addrBits: Int, beatBytes: Int, maxReadSize: Int) extends Bundle {
@@ -146,7 +146,7 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
 
     val io = IO(new Bundle {
       val req = Flipped(Decoupled(new EE290CDMAWriterReq(paddrBits, beatBytes)))
-      val busy = Bool()
+      val busy = Output(Bool())
     })
 
     val req = Reg(new EE290CDMAWriterReq(paddrBits, beatBytes))
@@ -211,7 +211,7 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
       val req = Flipped(Decoupled(new EE290CDMAReaderReq(paddrBits, maxReadSize)))
       val resp = Decoupled(new EE290CDMAReaderResp(maxReadSize))
       val queue = Decoupled(UInt((beatBytes * 8).W))
-      val busy = Bool()
+      val busy = Output(Bool())
     })
 
     val req = Reg(new EE290CDMAReaderReq(paddrBits, maxReadSize))
