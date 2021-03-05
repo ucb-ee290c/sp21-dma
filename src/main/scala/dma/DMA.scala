@@ -13,16 +13,16 @@ import testchipip.TLHelper
 class EE290CDMAWriterReq(val addrBits: Int, val beatBytes: Int) extends Bundle {
   val addr = UInt(addrBits.W)
   val data = UInt((beatBytes * 8).W)
-  val totalBytes = UInt(log2Ceil(beatBytes).W)
+  val totalBytes = UInt((log2Ceil(beatBytes)+1).W)
 }
 
 class EE290CDMAReaderReq(val addrBits: Int, val maxReadSize: Int) extends Bundle {
   val addr = UInt(addrBits.W)
-  val totalBytes = UInt(log2Ceil(maxReadSize).W)
+  val totalBytes = UInt((log2Ceil(maxReadSize)+1).W)
 }
 
 class EE290CDMAReaderResp(val maxReadSize: Int) extends Bundle {
-  val bytesRead = UInt(log2Ceil(maxReadSize).W)
+  val bytesRead = UInt((log2Ceil(maxReadSize)+1).W)
 }
 
 /*
@@ -160,7 +160,7 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
     val bytesLeft = req.totalBytes - bytesSent
 
     val put = edge.Put(
-      fromSource = 0.U, // TODO: Verify
+      fromSource = 0.U, // TODO: Hardcoded to 0 for now, but will want to parameterize
       toAddress = req.addr,
       lgSize = log2Ceil(beatBytes).U,
       data = req.data)._2
@@ -173,7 +173,7 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
       mask = mask(bytesLeft))._2
 
     mem.a.valid := state === s_write
-    mem.a.bits := Mux(bytesLeft < beatBytes.U, put, putPartial)
+    mem.a.bits := Mux(bytesLeft < beatBytes.U, putPartial, put)
 
     mem.d.ready := state === s_resp
 
@@ -224,7 +224,7 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
 
 
     mem.a.bits := edge.Get(
-      fromSource = 0.U, // TODO: see writer source comment
+      fromSource = 1.U, // TODO: Hardcoded to not conflict with reader, but should parameterize (as will be connected to bus)
       toAddress = req.addr,
       lgSize = log2Ceil(beatBytes).U)._2 // Always get a full beatBytes bytes, even if not used in packet
 
