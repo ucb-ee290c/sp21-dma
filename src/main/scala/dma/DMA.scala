@@ -5,8 +5,7 @@ import chisel3.util._
 import chisel3.experimental._
 import freechips.rocketchip.config.Parameters
 import freechips.rocketchip.diplomacy.{IdRange, LazyModule, LazyModuleImp}
-import freechips.rocketchip.rocket.constants.MemoryOpConstants
-import freechips.rocketchip.tile.{HasCoreParameters}
+import freechips.rocketchip.rocket.constants.{MemoryOpConstants}
 import freechips.rocketchip.tilelink.{TLIdentityNode, TLXbar}
 import testchipip.TLHelper
 
@@ -106,14 +105,17 @@ class EE290CDMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Para
   val id_node = TLIdentityNode()
   val xbar_node = TLXbar()
 
+
   val reader = LazyModule(new EE290CDMAReader(beatBytes, maxReadSize, s"${name}-reader"))
   val writer = LazyModule(new EE290CDMAWriter(beatBytes, s"${name}-writer"))
+
+  val paddrBits = 32 //TODO: is there an elegant way to get paddrBits into a non Tile based component
 
   xbar_node := writer.node
   xbar_node := reader.node
   id_node := xbar_node
 
-  lazy val module = new LazyModuleImp(this) with HasCoreParameters {
+  lazy val module = new LazyModuleImp(this) {
     val io = IO(new Bundle {
       val read = new EE290CDMAReadIO(paddrBits, beatBytes, maxReadSize)
       val write = new EE290CDMAWriteIO(paddrBits, beatBytes)
@@ -141,8 +143,10 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
     sourceId = IdRange(0, 1)
   )
 
-  lazy val module = new LazyModuleImp(this) with HasCoreParameters with MemoryOpConstants {
+  lazy val module = new LazyModuleImp(this) with MemoryOpConstants {
     val (mem, edge) = node.out(0)
+
+    val paddrBits = edge.bundle.addressBits
 
     val io = IO(new Bundle {
       val req = Flipped(Decoupled(new EE290CDMAWriterReq(paddrBits, beatBytes)))
@@ -204,8 +208,10 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
     sourceId = IdRange(0, 1)
   )
 
-  lazy val module = new LazyModuleImp(this) with HasCoreParameters with MemoryOpConstants {
+  lazy val module = new LazyModuleImp(this) with MemoryOpConstants {
     val (mem, edge) = node.out(0)
+
+    val paddrBits = edge.bundle.addressBits
 
     val io = IO(new Bundle {
       val req = Flipped(Decoupled(new EE290CDMAReaderReq(paddrBits, maxReadSize)))
