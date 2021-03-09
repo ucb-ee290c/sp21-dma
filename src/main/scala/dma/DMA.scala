@@ -15,13 +15,13 @@ class EE290CDMAWriterReq(val addrBits: Int, val beatBytes: Int) extends Bundle {
   val totalBytes = UInt((log2Ceil(beatBytes+1)).W)
 }
 
-class EE290CDMAReaderReq(val addrBits: Int, val maxReadSize: Int) extends Bundle {
+class EE290CDMAReaderReq(val addrBits: Int, val maxReadBytes: Int) extends Bundle {
   val addr = UInt(addrBits.W)
-  val totalBytes = UInt((log2Ceil(maxReadSize+1)).W)
+  val totalBytes = UInt((log2Ceil(maxReadBytes+1)).W)
 }
 
-class EE290CDMAReaderResp(val maxReadSize: Int) extends Bundle {
-  val bytesRead = UInt((log2Ceil(maxReadSize+1)).W)
+class EE290CDMAReaderResp(val maxReadBytes: Int) extends Bundle {
+  val bytesRead = UInt((log2Ceil(maxReadBytes+1)).W)
 }
 
 /*
@@ -94,19 +94,19 @@ class EE290CDMAWriteIO(addrBits: Int, beatBytes: Int) extends Bundle {
   val req = Flipped(Decoupled(new EE290CDMAWriterReq(addrBits, beatBytes)))
 }
 
-class EE290CDMAReadIO(addrBits: Int, beatBytes: Int, maxReadSize: Int) extends Bundle {
-  val req = Flipped(Decoupled(new EE290CDMAReaderReq(addrBits, maxReadSize)))
-  val resp = Decoupled(new EE290CDMAReaderResp(maxReadSize))
+class EE290CDMAReadIO(addrBits: Int, beatBytes: Int, maxReadBytes: Int) extends Bundle {
+  val req = Flipped(Decoupled(new EE290CDMAReaderReq(addrBits, maxReadBytes)))
+  val resp = Decoupled(new EE290CDMAReaderResp(maxReadBytes))
   val queue = Decoupled(UInt((beatBytes * 8).W))
 }
 
 
-class EE290CDMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Parameters) extends LazyModule {
+class EE290CDMA(beatBytes: Int, maxReadBytes: Int, name: String)(implicit p: Parameters) extends LazyModule {
   val id_node = TLIdentityNode()
   val xbar_node = TLXbar()
 
 
-  val reader = LazyModule(new EE290CDMAReader(beatBytes, maxReadSize, s"${name}-reader"))
+  val reader = LazyModule(new EE290CDMAReader(beatBytes, maxReadBytes, s"${name}-reader"))
   val writer = LazyModule(new EE290CDMAWriter(beatBytes, s"${name}-writer"))
 
   val paddrBits = 32 //TODO: is there an elegant way to get paddrBits into a non Tile based component
@@ -117,7 +117,7 @@ class EE290CDMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Para
 
   lazy val module = new LazyModuleImp(this) {
     val io = IO(new Bundle {
-      val read = new EE290CDMAReadIO(paddrBits, beatBytes, maxReadSize)
+      val read = new EE290CDMAReadIO(paddrBits, beatBytes, maxReadBytes)
       val write = new EE290CDMAWriteIO(paddrBits, beatBytes)
       val readBusy = Output(Bool())
       val writeBusy = Output(Bool())
@@ -185,7 +185,6 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
     // TODO Both writer and reader needs to have mem.d.ready high for the xbar.d.ready to be high for some reason...
     mem.d.ready := true.B
 
-    // TODO Sometimes never occurs and causes infinite amount of requests... need to look into reason
     when (edge.done(mem.a)) {
       req.addr := req.addr + beatBytes.U
       bytesSent := bytesSent + Mux(bytesLeft < beatBytes.U, bytesLeft, beatBytes.U)
@@ -207,7 +206,7 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
   }
 }
 
-class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Parameters) extends LazyModule {
+class EE290CDMAReader(beatBytes: Int, maxReadBytes: Int, name: String)(implicit p: Parameters) extends LazyModule {
   val node = TLHelper.makeClientNode(
     name = name,
     sourceId = IdRange(1, 2) // Identifies the valid IDs for this node. NOTE: Does not influence actual bundle creation (e.g. it's just a label)
@@ -219,18 +218,18 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
     val paddrBits = edge.bundle.addressBits
 
     val io = IO(new Bundle {
-      val req = Flipped(Decoupled(new EE290CDMAReaderReq(paddrBits, maxReadSize)))
-      val resp = Decoupled(new EE290CDMAReaderResp(maxReadSize))
+      val req = Flipped(Decoupled(new EE290CDMAReaderReq(paddrBits, maxReadBytes)))
+      val resp = Decoupled(new EE290CDMAReaderResp(maxReadBytes))
       val queue = Decoupled(UInt((beatBytes * 8).W))
       val busy = Output(Bool())
     })
 
-    val req = Reg(new EE290CDMAReaderReq(paddrBits, maxReadSize))
+    val req = Reg(new EE290CDMAReaderReq(paddrBits, maxReadBytes))
 
     val s_idle :: s_read :: s_resp :: s_queue :: s_done :: Nil = Enum(5)
     val state = RegInit(s_idle)
 
-    val bytesRead = Reg(UInt(log2Ceil(maxReadSize+1).W))
+    val bytesRead = Reg(UInt(log2Ceil(maxReadBytes+1).W))
     val bytesLeft = req.totalBytes - bytesRead
 
     val dataBytes = Reg(UInt((beatBytes * 8).W))
