@@ -23,11 +23,11 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
 //  }
 
   it should "sanity check basic write + read operations (max-read == beatBytes)" in {
-    val beatBytes = 8
+    val beatBytes = 4
     val pAdderBits = 32
     implicit val p: Parameters = VerifTestUtils.getVerifParameters(xLen = 32, beatBytes = beatBytes, pAddrBits = pAdderBits)
     val dut = LazyModule(new DMAStandaloneBlock(VerifTestUtils.getVerifTLMasterPortParameters(),
-      VerifTestUtils.getVerifTLSlavePortParameters(beatBytes = beatBytes, pAddrBits = pAdderBits),8))
+      VerifTestUtils.getVerifTLSlavePortParameters(beatBytes = beatBytes, pAddrBits = pAdderBits),4))
     test(dut.module).withAnnotations(Seq(WriteVcdAnnotation)) { c =>
       // Ensuring that parameters is properly propagated
       assert(beatBytes == dut.dma.writer.module.req.beatBytes)
@@ -55,7 +55,7 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
       c.clock.step(r.nextInt(10) + 10)
 
       // TODO Currently fails due to strange bug. See DMA.scala:188
-      for (_ <- 0 until 20) {
+      for (i <- 0 until 20) {
         val writeSizeBytes = r.nextInt(beatBytes) + 1
         val req = GetRandomDMAWriterReq(pAdderBits, writeSizeBytes, beatBytes, r)
         writeDriver.push(writeTxProto.tx(req))
@@ -82,6 +82,9 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
         assert(dataMonitor.monitoredTransactions.head.data.litValue() == req.data.litValue())
         respMonitor.clearMonitoredTransactions()
         dataMonitor.clearMonitoredTransactions()
+
+//        // Debug printing
+//        println(s"Passed $i, ${req.data.litValue()}")
       }
     }
   }

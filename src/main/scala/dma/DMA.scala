@@ -162,7 +162,7 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
 
     val mask = VecInit(Seq.tabulate(beatBytes)(i => ((1 << i) - 1).U ))
 
-    val bytesSent = Reg(UInt(log2Ceil(beatBytes).W))
+    val bytesSent = Reg(UInt(log2Ceil(beatBytes + 1).W))
     val bytesLeft = req.totalBytes - bytesSent
 
     val put = edge.Put(
@@ -230,10 +230,10 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
     val s_idle :: s_read :: s_resp :: s_queue :: s_done :: Nil = Enum(5)
     val state = RegInit(s_idle)
 
-    val bytesRead = Reg(UInt(log2Ceil(maxReadSize).W))
+    val bytesRead = Reg(UInt(log2Ceil(maxReadSize+1).W))
     val bytesLeft = req.totalBytes - bytesRead
 
-    val readBytes = Reg(UInt((beatBytes * 8).W))
+    val dataBytes = Reg(UInt((beatBytes * 8).W))
 
     mem.a.valid := state === s_read
     mem.a.bits := edge.Get(
@@ -252,11 +252,11 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
     mem.d.ready := true.B
 
     when (mem.d.fire()) {
-      readBytes := mem.d.bits.data // TODO: mask off the unwanted bytes if bytesLeft < beatBytes.U using a mask vector and register
+      dataBytes := mem.d.bits.data // TODO: mask off the unwanted bytes if bytesLeft < beatBytes.U using a mask vector and register
       state := s_queue
     }
 
-    when (io.queue.fire()) {
+    when (io.queue.fire() && state === s_queue) {
       state := Mux(bytesLeft === 0.U, s_done, s_read)
     }
 
@@ -264,11 +264,12 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
     io.resp.valid := state === s_done
     io.resp.bits.bytesRead := bytesRead
     io.queue.valid := state === s_queue
-    io.queue.bits := readBytes
+    io.queue.bits := dataBytes
     io.busy := ~io.req.ready
 
     when (io.req.fire()) {
       req := io.req.bits
+      bytesRead := 0.U
       state := s_read
     }
   }
