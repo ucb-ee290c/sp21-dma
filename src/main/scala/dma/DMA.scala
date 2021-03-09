@@ -12,16 +12,16 @@ import testchipip.TLHelper
 class EE290CDMAWriterReq(val addrBits: Int, val beatBytes: Int) extends Bundle {
   val addr = UInt(addrBits.W)
   val data = UInt((beatBytes * 8).W)
-  val totalBytes = UInt((log2Ceil(beatBytes)+1).W)
+  val totalBytes = UInt((log2Ceil(beatBytes+1)).W)
 }
 
 class EE290CDMAReaderReq(val addrBits: Int, val maxReadSize: Int) extends Bundle {
   val addr = UInt(addrBits.W)
-  val totalBytes = UInt((log2Ceil(maxReadSize)+1).W)
+  val totalBytes = UInt((log2Ceil(maxReadSize+1)).W)
 }
 
 class EE290CDMAReaderResp(val maxReadSize: Int) extends Bundle {
-  val bytesRead = UInt((log2Ceil(maxReadSize)+1).W)
+  val bytesRead = UInt((log2Ceil(maxReadSize+1)).W)
 }
 
 /*
@@ -119,7 +119,8 @@ class EE290CDMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Para
     val io = IO(new Bundle {
       val read = new EE290CDMAReadIO(paddrBits, beatBytes, maxReadSize)
       val write = new EE290CDMAWriteIO(paddrBits, beatBytes)
-      val busy = Output(Bool())
+      val readBusy = Output(Bool())
+      val writeBusy = Output(Bool())
     })
 
     val readQ = Queue(reader.module.io.queue) // Queue of read data
@@ -132,7 +133,8 @@ class EE290CDMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Para
 
     writer.module.io.req <> writeQ
 
-    io.busy := writer.module.io.busy | reader.module.io.busy
+    io.readBusy := reader.module.io.busy
+    io.writeBusy := writer.module.io.busy
   }
 
 }
@@ -140,7 +142,7 @@ class EE290CDMA(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Para
 class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) extends LazyModule {
   val node = TLHelper.makeClientNode(
     name = name,
-    sourceId = IdRange(0, 1)
+    sourceId = IdRange(0, 1) // Identifies the valid IDs for this node. NOTE: Does not influence actual bundle creation (e.g. it's just a label)
   )
 
   lazy val module = new LazyModuleImp(this) with MemoryOpConstants {
@@ -179,8 +181,11 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
     mem.a.valid := state === s_write
     mem.a.bits := Mux(bytesLeft < beatBytes.U, putPartial, put)
 
-    mem.d.ready := state === s_resp
+//    mem.d.ready := state === s_resp
+    // TODO Both writer and reader needs to have mem.d.ready high for the xbar.d.ready to be high for some reason...
+    mem.d.ready := true.B
 
+    // TODO Sometimes never occurs and causes infinite amount of requests... need to look into reason
     when (edge.done(mem.a)) {
       req.addr := req.addr + beatBytes.U
       bytesSent := bytesSent + Mux(bytesLeft < beatBytes.U, bytesLeft, beatBytes.U)
@@ -205,7 +210,7 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
 class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p: Parameters) extends LazyModule {
   val node = TLHelper.makeClientNode(
     name = name,
-    sourceId = IdRange(0, 1)
+    sourceId = IdRange(1, 2) // Identifies the valid IDs for this node. NOTE: Does not influence actual bundle creation (e.g. it's just a label)
   )
 
   lazy val module = new LazyModuleImp(this) with MemoryOpConstants {
@@ -228,9 +233,11 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
     val bytesRead = Reg(UInt(log2Ceil(maxReadSize).W))
     val bytesLeft = req.totalBytes - bytesRead
 
+    val readBytes = Reg(UInt((beatBytes * 8).W))
 
+    mem.a.valid := state === s_read
     mem.a.bits := edge.Get(
-      fromSource = 1.U, // TODO: Hardcoded to not conflict with reader, but should parameterize (as will be connected to bus)
+      fromSource = 1.U, // TODO: Hardcoded to not conflict with writer, but should parameterize (as will be connected to bus)
       toAddress = req.addr,
       lgSize = log2Ceil(beatBytes).U)._2 // Always get a full beatBytes bytes, even if not used in packet
 
@@ -240,8 +247,12 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
       state := s_resp
     }
 
+//    mem.d.ready := state === s_resp
+    // TODO Both writer and reader needs to have mem.d.ready high for the xbar.d.ready to be high for some reason...
+    mem.d.ready := true.B
+
     when (mem.d.fire()) {
-      io.queue.bits := mem.d.bits.data // TODO: mask off the unwanted bytes if bytesLeft < beatBytes.U using a mask vector and register
+      readBytes := mem.d.bits.data // TODO: mask off the unwanted bytes if bytesLeft < beatBytes.U using a mask vector and register
       state := s_queue
     }
 
@@ -253,6 +264,7 @@ class EE290CDMAReader(beatBytes: Int, maxReadSize: Int, name: String)(implicit p
     io.resp.valid := state === s_done
     io.resp.bits.bytesRead := bytesRead
     io.queue.valid := state === s_queue
+    io.queue.bits := readBytes
     io.busy := ~io.req.ready
 
     when (io.req.fire()) {

@@ -1,28 +1,30 @@
 package ee290cdma
 
+import chisel3._
 import freechips.rocketchip.config.Parameters
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.subsystem.WithoutTLMonitors
 
-class DMATLRAMStandaloneBlock(mPortParams: TLMasterPortParameters, sPortParams: TLSlavePortParameters,
-                              ramAddressSet: AddressSet, maxReadSize: Int)(implicit p: Parameters = new WithoutTLMonitors) extends LazyModule {
+// Note: Moved away from TLRAM due to address limitations, easier/efficient to use the TLMemoryModel to mock a 32-bit address space
+class DMAStandaloneBlock(mPortParams: TLMasterPortParameters, sPortParams: TLSlavePortParameters, maxReadSize: Int)(implicit p: Parameters = new WithoutTLMonitors) extends LazyModule {
   val bParams= TLBundleParameters(mPortParams, sPortParams)
 
-  val ram  = LazyModule(new TLRAM(ramAddressSet, cacheable = false, atomics = false, beatBytes = sPortParams.beatBytes))
-  val xbar = LazyModule(new TLXbar)
   val dma  = LazyModule(new EE290CDMA(sPortParams.beatBytes, maxReadSize, "TLRAMDMA Test"))
 
-  // Test IO for debug/initializing TLRAM
-  val ioInNode = BundleBridgeSource(() => TLBundle(bParams))
-  val test_in = InModuleBody { ioInNode.makeIO() }
+  // IO to mimic memory interface
+  val ioOutNode = BundleBridgeSink[TLBundle]()
+  val to_mem = InModuleBody { ioOutNode.makeIO() }
 
-  // IO for DMA
-  val dma_in = InModuleBody{ dma.module.io }
+//  // Test IO for debug/initializing TLRAM
+//  val ioInNode = BundleBridgeSource(() => TLBundle(bParams))
+//  val test_in = InModuleBody { ioInNode.makeIO() }
 
-  ram.node := TLBuffer() := xbar.node
-  xbar.node := dma.id_node
-  xbar.node := BundleBridgeToTL(mPortParams) := ioInNode
+  ioOutNode := TLToBundleBridge(sPortParams) := dma.id_node
+//  := BundleBridgeToTL(mPortParams) := ioInNode
 
-  lazy val module = new LazyModuleImp(this) {}
+  lazy val module = new LazyModuleImp(this) {
+    val dma_in = IO(chiselTypeOf(dma.module.io))
+    dma_in <> dma.module.io
+  }
 }
