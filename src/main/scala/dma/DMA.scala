@@ -12,7 +12,7 @@ import testchipip.TLHelper
 class EE290CDMAWriterReq(val addrBits: Int, val beatBytes: Int) extends Bundle {
   val addr = UInt(addrBits.W)
   val data = UInt((beatBytes * 8).W)
-  val totalBytes = UInt(log2Ceil(beatBytes).W)
+  val totalBytes = UInt(log2Ceil(beatBytes + 1).W)
 }
 
 class EE290CDMAReaderReq(val addrBits: Int, val maxReadSize: Int) extends Bundle {
@@ -27,13 +27,18 @@ class EE290CDMAReaderResp(val maxReadSize: Int) extends Bundle {
 /*
 Builds beatByte wide data packets for the DMA from the one-byte wide packets
  */
+class DMAPacketAssemblerDMAOUTIO(val beatBytes: Int) extends Bundle {
+  val data = UInt((beatBytes*8).W)
+  val size = UInt(log2Ceil(beatBytes + 1).W)
+}
+
 class DMAPacketAssembler(beatBytes: Int) extends Module {
   val io = IO(new Bundle {
     val producer = new Bundle {
       val data = Flipped(Decoupled(UInt(8.W)))
       val done = Input(Bool()) // Signal to indicate we should send what we have and reset
     }
-    val dmaOut = Decoupled(UInt((beatBytes*8).W))
+    val dmaOut = Decoupled(new DMAPacketAssemblerDMAOUTIO(beatBytes))
   })
 
   val counter = RegInit(0.U(log2Ceil(beatBytes + 1).W))
@@ -50,7 +55,8 @@ class DMAPacketAssembler(beatBytes: Int) extends Module {
   }
 
   io.dmaOut.valid := counter === beatBytes.U | (counter =/= 0.U & io.producer.done)
-  io.dmaOut.bits := packedData
+  io.dmaOut.bits.data := packedData
+  io.dmaOut.bits.size := counter
   // If we are waiting on the out to be taken up, we should not take in more data
   io.producer.data.ready := !io.dmaOut.valid
 }
