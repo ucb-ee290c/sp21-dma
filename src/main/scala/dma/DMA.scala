@@ -177,12 +177,15 @@ class EE290CDMAWriter(beatBytes: Int, name: String)(implicit p: Parameters) exte
       lgSize = log2Ceil(beatBytes).U,
       data = req.data)._2
 
+    // Mask and data needs to be shifted by word offset (payload is little-endian and naturally aligned to word size)
+    val shiftMask = (req.addr & (beatBytes - 1).U)(log2Ceil(beatBytes * 8), 0)
+    val shiftData = (shiftMask << 3)(log2Ceil(beatBytes * 8), 0)
     val putPartial = edge.Put(
       fromSource = 0.U,
       toAddress = req.addr,
       lgSize = log2Ceil(beatBytes).U,
-      data = req.data,
-      mask = mask(bytesLeft))._2
+      data = (req.data << shiftData).asUInt(),
+      mask = (mask(bytesLeft) << shiftMask).asUInt())._2
 
     mem.a.valid := state === s_write
     mem.a.bits := Mux(bytesLeft < beatBytes.U, putPartial, put)

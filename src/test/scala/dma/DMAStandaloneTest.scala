@@ -1,6 +1,7 @@
 package ee290cdma
 
 import chisel3._
+import chisel3.util.log2Ceil
 import chiseltest._
 import chiseltest.experimental.TestOptionBuilder._
 import chiseltest.internal.WriteVcdAnnotation
@@ -14,6 +15,7 @@ import verif._
 
 class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
 
+  // This test writes random data and checks that later read results are consistent
   it should "sanity check basic write + read operations (max-read <= beatBytes)" in {
     val beatBytes = 4
     val pAdderBits = 32
@@ -48,15 +50,15 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
       c.clock.step(r.nextInt(10) + 10)
 
       for (i <- 0 until 20) {
-        val writeSizeBytes = r.nextInt(beatBytes) + 1
-        val req = GetRandomDMAWriterReq(pAdderBits, writeSizeBytes, beatBytes, r)
+        val writeSize = r.nextInt(log2Ceil(beatBytes) + 1)
+        val req = GetRandomDMAWriterReq(pAdderBits, writeSize, beatBytes, r)
         writeDriver.push(writeTxProto.tx(req))
-        c.clock.step(3) // Unsure why this is 3
+        c.clock.step(3)
         assert(c.dma_in.writeBusy.peek().litToBoolean)
         c.clock.step(20)
         assert(!c.dma_in.writeBusy.peek().litToBoolean)
 
-        readDriver.push(readTxProto.tx(EE290CDMAReaderReqHelper(req.addr.litValue(), writeSizeBytes, pAdderBits, maxReadBytes)))
+        readDriver.push(readTxProto.tx(EE290CDMAReaderReqHelper(req.addr.litValue(), 1 << writeSize, pAdderBits, maxReadBytes)))
         c.clock.step(2)
         assert(c.dma_in.readBusy.peek().litToBoolean)
         c.clock.step(20)
@@ -67,11 +69,16 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
 //        val txns = slaveMonitor.getMonitoredTransactions()
 //        println(s"Montior txns: ${txns.size}")
 //        txns.foreach(println(_))
+//        println(s"DataSize: $writeSize")
 //        println(s"Data: ${req.data.litValue()}")
 
         assert(respMonitor.monitoredTransactions.nonEmpty)
         assert(dataMonitor.monitoredTransactions.nonEmpty)
-        assert(dataMonitor.monitoredTransactions.head.data.litValue() == req.data.litValue())
+        // Masking/shifting read data to extract written data
+        var data = dataMonitor.monitoredTransactions.head.data.litValue()
+        data = data >> ((req.addr.litValue() & (beatBytes - 1)) * 8).toInt
+        data = data & BigInt("1" * ((1 << writeSize) * 8), 2)
+        assert(data == req.data.litValue())
         respMonitor.clearMonitoredTransactions()
         dataMonitor.clearMonitoredTransactions()
 
@@ -81,6 +88,7 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 
+  // This test writes random data and checks that later read results are consistent (multiple packets)
   it should "sanity check basic write + read operations (max-read > beatBytes)" in {
     val beatBytes = 4
     val pAdderBits = 32
@@ -115,10 +123,10 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
       c.clock.step(r.nextInt(10) + 10)
 
       for (i <- 0 until 20) {
-        val writeSizeBytes = r.nextInt(beatBytes) + 1
-        val req = GetRandomDMAWriterReq(pAdderBits, writeSizeBytes, beatBytes, r)
+        val writeSize = r.nextInt(log2Ceil(beatBytes) + 1)
+        val req = GetRandomDMAWriterReq(pAdderBits, writeSize, beatBytes, r)
         writeDriver.push(writeTxProto.tx(req))
-        c.clock.step(3) // Unsure why this is 3
+        c.clock.step(3)
         assert(c.dma_in.writeBusy.peek().litToBoolean)
         c.clock.step(20)
         assert(!c.dma_in.writeBusy.peek().litToBoolean)
@@ -135,18 +143,23 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
         //        val txns = slaveMonitor.getMonitoredTransactions()
         //        println(s"Montior txns: ${txns.size}")
         //        txns.foreach(println(_))
+        //        println(s"DataSize: $writeSize")
         //        println(s"Data: ${req.data.litValue()}")
 
         assert(respMonitor.monitoredTransactions.nonEmpty)
         assert(dataMonitor.monitoredTransactions.nonEmpty)
-        assert(dataMonitor.monitoredTransactions.head.data.litValue() == req.data.litValue())
+        // Masking/shifting read data to extract written data
+        var data = dataMonitor.monitoredTransactions.head.data.litValue()
+        data = data >> ((req.addr.litValue() & (beatBytes - 1)) * 8).toInt
+        data = data & BigInt("1" * ((1 << writeSize) * 8), 2)
+        assert(data == req.data.litValue())
         if (readSizeBytes > beatBytes) {
           // If readSizeBytes > beatBytes, need to check second beat of data
           assert(dataMonitor.monitoredTransactions.size == 2)
           // Extracting second beat of data directly from the memory state
           val bytesPerWord = slaveModel.params.dataBits/8
           val addr = ((req.addr.litValue() / bytesPerWord) + 1).toLong
-          assert(dataMonitor.monitoredTransactions(1).data.litValue() == TLMemoryModel.read(slaveModel.state.mem, addr, -1, bytesPerWord))
+          assert(dataMonitor.monitoredTransactions(1).data.litValue() == TLMemoryModel.read(slaveModel.state.mem, addr, bytesPerWord, -1))
         }
         respMonitor.clearMonitoredTransactions()
         dataMonitor.clearMonitoredTransactions()
@@ -156,5 +169,4 @@ class DMAStandaloneTest extends AnyFlatSpec with ChiselScalatestTester {
       }
     }
   }
-
 }
